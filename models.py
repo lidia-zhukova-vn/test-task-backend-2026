@@ -1,8 +1,12 @@
 from enum import Enum
 
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Column, func, MetaData
+from sqlalchemy import (
+    BigInteger, Boolean, Column, DateTime, ForeignKey, Index, MetaData,
+    Text, func, text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
+
 
 naming_convention = {
     "ix": 'ix_%(column_0_label)s',
@@ -22,73 +26,54 @@ class AbcCustomerEntities(Enum):
     SendMethods = 'send_methods'
 
 
-class AbstractCustomer(db.Model):
+class Customer(db.Model):
     """
-    "default" "general" : {
-        "id": int
-    }
+    покупатель
+    `amo_id`            primary CRM-id, UNIQUE (NULL - для «осиротевших»)
+    `merged_amo_ids`    CRM-id, «впитанные» при мердже; по ним тоже поиск,
+                        чтобы не создавать дубли при следующем прогоне
+    `login`, `name`     вынесены из jsonb и проиндексированы: их ищут
+                        и ночной прогон, и другие сервисы
+    `api_value`, `contacts`, `companies`    сырой ответ AmoCRM (jsonb)"""
 
-    "amo_customers": [
-        {
-            "general": {
-                "login": str,
-                "billing_type": str,
-                "is_robot": bool,
-                "is_nds": bool,
-                "system": str,
-                "host": str,
-                "name": str
-            },
-            "api_value": {}
-        }
-    ]
+    __tablename__ = "customer"
 
-    "amo_leads": [
-        {
-            "general": {
-                "login": Optional[str],
-                "name": str
-            }
-            "api_value": {}
-        }
-    ]
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    amo_id = Column(BigInteger, unique=True, nullable=True)
+    merged_amo_ids = Column(JSONB, nullable=False, default=list,
+                            server_default=text("'[]'::jsonb"))
+    login = Column(Text, nullable=True)
+    name = Column(Text, nullable=True)
+    api_value = Column(JSONB)
+    contacts = Column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    companies = Column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
 
-    "amo_companies": [
-        {
-            "general": {
-                "id": int,
-                "inn": Optional[str],
-                "name": str
-            }
-            "api_value": {}
-        }
-    ]
+    __table_args__ = (
+        Index("ix_customer_login", "login"),
+        Index("ix_customer_name", "name"),
+        Index("ix_customer_merged_amo_ids", "merged_amo_ids",
+              postgresql_using="gin"),
+    )
 
-    "amo_contacts": [
-        {
-            "general": {
-                "id": int,
-                "phone": Optional[str],
-                "name": str
-            }
-            "api_value": {}
-        }
-    ]
 
-    "send_methods": [
-        {
-            "type": str (mail,sms,wtsp),
-            "value": str,
-            "desc": str,
-        }
-    ]
-    """
-    __tablename__ = "abstract_customer"
-    id = Column(db.BigInteger(), nullable=False, primary_key=True)
-    amo_customers = Column(JSONB)
-    amo_leads = Column(JSONB)
-    amo_companies = Column(JSONB)
-    amo_contacts = Column(JSONB)
-    send_methods = Column(JSONB)
-    created_at = Column(db.DateTime, server_default=func.now())
-    updated_at = Column(db.DateTime, onupdate=func.now())
+class Lead(db.Model):
+    __tablename__ = "lead"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    amo_id = Column(BigInteger, unique=True, nullable=False)
+    customer_id = Column(BigInteger,
+                         ForeignKey("customer.id", ondelete="RESTRICT"),
+                         nullable=False)
+    login = Column(Text, nullable=True)
+    name = Column(Text, nullable=True)
+    api_value = Column(JSONB)
+    contacts = Column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_lead_login", "login"),
+        Index("ix_lead_customer", "customer_id"),
+    )

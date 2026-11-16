@@ -5,11 +5,10 @@ from typing import Optional, Dict
 
 from sqlalchemy import text
 
-from amocrm import Customer, Lead
-from models import AbstractCustomer, db, AbcCustomerEntities
+from amocrm import Customer as AmoCustomer, Lead as AmoLead
+from models import Customer, Lead, db, AbcCustomerEntities
 
 logger = logging.getLogger(__name__)
-
 
 def update_jsonb_field(entity_id: int,
                        attribute: AbcCustomerEntities,
@@ -40,7 +39,7 @@ def dict_compare_merge(l_dict1, l_dict2):
     return list(d.values())
 
 
-def get_customer_json(customer: Customer) -> dict:
+def get_customer_json(customer: AmoCustomer) -> dict:
     return {
         'general': {
             'id': customer.id,
@@ -56,7 +55,7 @@ def get_customer_json(customer: Customer) -> dict:
     }
 
 
-def get_lead_json(lead: Lead) -> dict:
+def get_lead_json(lead: AmoLead) -> dict:
     return {
         'general': {
             'id': lead.id,
@@ -67,9 +66,9 @@ def get_lead_json(lead: Lead) -> dict:
     }
 
 
-def get_abccustomer_by_lead_login(lead_login: str) -> Optional[AbstractCustomer]:
-    customers = db.session.query(AbstractCustomer).filter(
-        AbstractCustomer.amo_leads.op('@>')([{'general': {'login': lead_login}}])).all()
+def get_abccustomer_by_lead_login(lead_login: str) -> Optional[Customer]:
+    customers = db.session.query(Customer).filter(
+        Customer.amo_leads.op('@>')([{'general': {'login': lead_login}}])).all()
 
     if len(customers) > 1:
         logger.warning(f"Lead {lead_login} has more than one abccustomer")
@@ -80,9 +79,9 @@ def get_abccustomer_by_lead_login(lead_login: str) -> Optional[AbstractCustomer]
     return customers[0]
 
 
-def get_abccustomer_by_amocustomer_login(customer_login: str) -> Optional[AbstractCustomer]:
-    customers = db.session.query(AbstractCustomer).filter(
-        AbstractCustomer.amo_customers.op('@>')([{'general': {'login': customer_login}}])).all()
+def get_abccustomer_by_amocustomer_login(customer_login: str) -> Optional[Customer]:
+    customers = db.session.query(Customer).filter(
+        Customer.amo_customers.op('@>')([{'general': {'login': customer_login}}])).all()
 
     if len(customers) > 1:
         logger.warning(f"Customer {customer_login} has more than one abccustomer")
@@ -93,9 +92,9 @@ def get_abccustomer_by_amocustomer_login(customer_login: str) -> Optional[Abstra
     return customers[0]
 
 
-def create_or_update_customer(abstract_customer: Optional[AbstractCustomer], amo_customer: Customer):
+def create_or_update_customer(abstract_customer: Optional[Customer], amo_customer: Customer):
     if abstract_customer is None:
-        new_abstract_customer = AbstractCustomer(
+        new_abstract_customer = Customer(
             amo_customers=[get_customer_json(amo_customer)],
         )
         db.session.add(new_abstract_customer)
@@ -120,9 +119,9 @@ def create_or_update_customer(abstract_customer: Optional[AbstractCustomer], amo
     return abstract_customer
 
 
-def create_or_update_lead(abc_customer: Optional[AbstractCustomer], amo_lead: Lead) -> AbstractCustomer:
+def create_or_update_lead(abc_customer: Optional[Customer], amo_lead: AmoLead) -> Customer:
     if abc_customer is None:
-        new_abstract_customer = AbstractCustomer(
+        new_abstract_customer = Customer(
             amo_leads=[get_lead_json(amo_lead)])
         db.session.add(new_abstract_customer)
         db.session.commit()
@@ -145,3 +144,26 @@ def create_or_update_lead(abc_customer: Optional[AbstractCustomer], amo_lead: Le
                        new_value=get_lead_json(amo_lead))
     db.session.commit()
     return abc_customer
+
+def customer_to_row(customer) -> dict:
+    cfv = customer.custom_fields_values or {}
+    return {
+        'amo_id': customer.id,
+        'login': cfv.get('Логин', {}).get('value'),
+        'name': customer.name,
+        'api_value': customer.as_dict(),
+        'contacts': list(customer.contacts or []),
+        'companies': list(customer.companies or []),
+    }
+
+
+def lead_to_row(lead, customer_id: int) -> dict:
+    cfv = lead.custom_fields_values or {}
+    return {
+        'amo_id': lead.id,
+        'customer_id': customer_id,
+        'login': cfv.get('Логин', {}).get('value'),
+        'name': lead.name,
+        'api_value': lead.as_dict(),
+        'contacts': list(lead.contacts or []),
+    }
