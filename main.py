@@ -12,31 +12,31 @@ BATCH_SIZE = 1000
 logger = logging.getLogger(__name__)
 
 
-def rebuild_indices(idx: dict) -> None:
+def rebuild_indices(ids_map: dict) -> None:
     for key in ('cust_by_amo', 'lead_by_amo',
                 'cust_by_login', 'lead_by_login'):
-        idx[key].clear()
+        ids_map[key].clear()
 
-    for cid, c in idx['rows_c'].items():
+    for cid, c in ids_map['rows_c'].items():
         if c.amo_id is not None:
-            idx['cust_by_amo'][c.amo_id] = cid
+            ids_map['cust_by_amo'][c.amo_id] = cid
         for extra in (c.merged_amo_ids or []):
-            idx['cust_by_amo'][extra] = cid
+            ids_map['cust_by_amo'][extra] = cid
         if c.login:
-            idx['cust_by_login'][c.login].add(cid)
+            ids_map['cust_by_login'][c.login].add(cid)
 
-    for lid, l in idx['rows_l'].items():
-        idx['lead_by_amo'][l.amo_id] = lid
+    for lid, l in ids_map['rows_l'].items():
+        ids_map['lead_by_amo'][l.amo_id] = lid
         if l.login:
-            idx['lead_by_login'][l.login].add(l.customer_id)
+            ids_map['lead_by_login'][l.login].add(l.customer_id)
 
 
 def preload() -> dict:
-    # по одному select и построение всех индексов в памяти
+    # по одному select и построение всех строк в памяти
     # чтобы потом не надо было
     customers = db.session.scalars(select(Customer)).all()
     leads = db.session.scalars(select(Lead)).all()
-    idx = {
+    ids_map = {
         'rows_c': {c.id: c for c in customers},
         'rows_l': {l.id: l for l in leads},
         'cust_by_amo': {},
@@ -44,8 +44,8 @@ def preload() -> dict:
         'cust_by_login': defaultdict(set),
         'lead_by_login': defaultdict(set),
     }
-    rebuild_indices(idx)
-    return idx
+    rebuild_indices(ids_map)
+    return ids_map
 
 
 def check_unique(candidates) -> int | None:
